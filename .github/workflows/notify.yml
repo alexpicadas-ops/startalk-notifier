@@ -7,7 +7,12 @@ on:
         description: "normal = check for new posts, test = post latest of each with [TEST] and no pings"
         type: choice
         options: [normal, test]
-        default: normal
+        default: test
+      source:
+        description: "Source to test silently"
+        type: choice
+        options: [youtube, all, patreon, podcast]
+        default: youtube
 
 permissions:
   contents: write   # lets the workflow save state.json back to the repo
@@ -32,6 +37,8 @@ jobs:
 
       - name: Check for new posts
         env:
+          TEST_SOURCE: ${{ inputs.source }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
           YOUTUBE_CHANNEL_ID: ${{ secrets.YOUTUBE_CHANNEL_ID }}
           WEBHOOK_VIDEOS: ${{ secrets.WEBHOOK_VIDEOS }}
           ROLE_VIDEOS: ${{ secrets.ROLE_VIDEOS }}
@@ -48,7 +55,7 @@ jobs:
           ROLE_PODCAST: ${{ secrets.ROLE_PODCAST }}
         run: |
           if [ "${{ github.event.inputs.mode }}" = "test" ]; then
-            python notifier.py --test
+            python notifier.py --test --source "$TEST_SOURCE"
           else
             python notifier.py
           fi
