@@ -1,0 +1,68 @@
+name: StarTalk notifier
+
+on:
+  schedule:
+    # Every 10 minutes (GitHub may run it a few minutes late at busy times).
+    # In a PRIVATE repo, change this to "*/30 * * * *" to stay within the free minutes.
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "normal = check for new posts, test = post latest of each with [TEST] and no pings"
+        type: choice
+        options: [normal, test]
+        default: normal
+
+permissions:
+  contents: write   # lets the workflow save state.json back to the repo
+
+concurrency:
+  group: notifier
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      - name: Check for new posts
+        env:
+          YOUTUBE_CHANNEL_ID: ${{ secrets.YOUTUBE_CHANNEL_ID }}
+          WEBHOOK_VIDEOS: ${{ secrets.WEBHOOK_VIDEOS }}
+          ROLE_VIDEOS: ${{ secrets.ROLE_VIDEOS }}
+          WEBHOOK_SHORTS: ${{ secrets.WEBHOOK_SHORTS }}
+          ROLE_SHORTS: ${{ secrets.ROLE_SHORTS }}
+          PATREON_TOKEN: ${{ secrets.PATREON_TOKEN }}
+          WEBHOOK_PATREON: ${{ secrets.WEBHOOK_PATREON }}
+          ROLE_PATREON: ${{ secrets.ROLE_PATREON }}
+          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
+          SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
+          SPOTIFY_SHOW_ID: ${{ secrets.SPOTIFY_SHOW_ID }}
+          PODCAST_RSS_URL: ${{ secrets.PODCAST_RSS_URL }}
+          WEBHOOK_PODCAST: ${{ secrets.WEBHOOK_PODCAST }}
+          ROLE_PODCAST: ${{ secrets.ROLE_PODCAST }}
+        run: |
+          if [ "${{ github.event.inputs.mode }}" = "test" ]; then
+            python notifier.py --test
+          else
+            python notifier.py
+          fi
+
+      - name: Save state
+        if: always()
+        run: |
+          if [ -f state.json ] && [ -n "$(git status --porcelain state.json)" ]; then
+            git config user.name "startalk-notifier"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add state.json
+            git commit -m "Update notifier state"
+            git push
+          fi
