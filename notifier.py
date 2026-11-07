@@ -113,7 +113,36 @@ def post_discord(webhook, role_id, text, url, dry_run=False, ping=True):
 YT_NS = {"atom": "http://www.w3.org/2005/Atom", "yt": "http://www.youtube.com/xml/schemas/2015"}
 
 
+def youtube_api_get(resource, params):
+    # Keep the key out of URLs and exception messages (including public run logs).
+    try:
+        r = requests.get(f"https://www.googleapis.com/youtube/v3/{resource}",
+                         params=params, headers={**UA, "X-Goog-Api-Key": env("YOUTUBE_API_KEY")},
+                         timeout=TIMEOUT)
+    except requests.RequestException:
+        raise RuntimeError("YouTube API connection failed") from None
+    if r.status_code != 200:
+        raise RuntimeError(f"YouTube API returned HTTP {r.status_code}; check API enablement, key restrictions and quota")
+    return r.json()
+
+
 def youtube_entries(channel_id):
+    if env("YOUTUBE_API_KEY"):
+        data = youtube_api_get("channels", {"part": "contentDetails", "id": channel_id})
+        channels = data.get("items") or []
+        if not channels:
+            raise RuntimeError("YouTube API could not find the configured channel")
+        uploads = channels[0]["contentDetails"]["relatedPlaylists"]["uploads"]
+        data = youtube_api_get("playlistItems", {
+            "part": "snippet,contentDetails", "playlistId": uploads, "maxResults": 50})
+        entries = []
+        for item in data.get("items", []):
+            snippet = item.get("snippet", {})
+            vid = item.get("contentDetails", {}).get("videoId")
+            if vid and snippet.get("title") not in ("Private video", "Deleted video"):
+                entries.append((vid, snippet.get("title") or "New upload"))
+        entries.reverse()
+        return entries
     r = requests.get("https://www.youtube.com/feeds/videos.xml",
                      params={"channel_id": channel_id}, headers=UA, timeout=TIMEOUT)
     r.raise_for_status()
@@ -336,6 +365,8 @@ def run_once(args):
     failures = 0
     for name, fn in (("YouTube", check_youtube), ("Patreon", check_patreon),
                      ("Podcast", check_podcast)):
+        if getattr(args, "source", "all") not in ("all", name.lower()):
+            continue
         try:
             fn(state, args)
         except Exception as e:  # one broken source shouldn't stop the others
@@ -352,6 +383,8 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="print instead of posting")
     ap.add_argument("--test", action="store_true",
                     help="post the latest item from each source, marked [TEST]")
+    ap.add_argument("--source", choices=("all", "youtube", "patreon", "podcast"), default="all",
+                    help="check only the selected source")
     ap.add_argument("--loop", type=float, metavar="MINUTES",
                     help="keep running, checking every MINUTES")
     args = ap.parse_args()
