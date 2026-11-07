@@ -95,6 +95,8 @@ def post_discord(webhook, role_id, text, url, dry_run=False, ping=True):
         # Test posts show the role but don't actually notify anyone.
         "allowed_mentions": {"parse": [], "roles": [role_id] if (role_id and ping) else []},
     }
+    if not ping:
+        payload["flags"] = 4096  # SUPPRESS_NOTIFICATIONS: silent test messages
     for _ in range(5):
         r = requests.post(webhook, json=payload, timeout=TIMEOUT)
         if r.status_code == 429:
@@ -217,8 +219,16 @@ def rss_items(feed_url):
     for it in items:
         guid = it.findtext("guid") or it.findtext("link") or it.findtext("title")
         if guid:
+            link = (it.findtext("link") or "").strip()
+            # Some hosts supply a bare homepage instead of an episode page.
+            # Use the episode's public audio URL when there is no usable link.
+            if not link.startswith(("https://", "http://")):
+                enclosure = it.find("enclosure")
+                link = enclosure.get("url", "").strip() if enclosure is not None else ""
+            if not link.startswith(("https://", "http://")):
+                raise RuntimeError("Podcast episode has no usable page or audio link")
             out.append(Item(guid.strip(), (it.findtext("title") or "New episode").strip(),
-                            (it.findtext("link") or "").strip(), "podcast"))
+                            link, "podcast"))
     return out
 
 
